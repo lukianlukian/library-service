@@ -61,6 +61,8 @@ cover/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+db.sqlite3-wal
+db.sqlite3-shm
 
 # Flask stuff:
 instance/
@@ -151,6 +153,9 @@ activemq-data/
 
 # Environments
 .env
+.env.*
+!.env.example
+!.env.sample
 .envrc
 .venv
 env/
@@ -188,7 +193,7 @@ cython_debug/
 #   be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
 #   and can be added to the global gitignore or merged into this file.  For a more nuclear
 #   option (not recommended) you can uncomment the following to ignore the entire idea folder.
-# .idea/
+.idea/
 
 # Abstra
 #   Abstra is an AI-powered process automation framework.
@@ -218,3 +223,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
