@@ -1,0 +1,15 @@
+[run]
+source = books,users,borrowings,payments,notifications,config
+omit =
+    */migrations/*
+    */tests.py
+    */test_*.py
+    */tests/*
+    */.venv/*
+    */venv/*
+
+[report]
+show_missing = True
+fail_under = 60
+exclude_also =
+    if __name__ == .__main__.:
