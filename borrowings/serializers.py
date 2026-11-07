@@ -3,9 +3,12 @@ from rest_framework import serializers
 
 from borrowings.models import Borrowing
 from borrowings.services import borrow_book
+from payments.serializers import PaymentSerializer
 
 
 class BorrowingSerializer(serializers.ModelSerializer):
+    payments = PaymentSerializer(many=True, read_only=True)
+
     class Meta:
         model = Borrowing
         fields = (
@@ -15,6 +18,7 @@ class BorrowingSerializer(serializers.ModelSerializer):
             "borrow_date",
             "expected_return_date",
             "actual_return_date",
+            "payments",
         )
         read_only_fields = ("id", "user", "borrow_date", "actual_return_date")
 

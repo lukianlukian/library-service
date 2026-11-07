@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "books",
     "users",
     "borrowings",
+    "payments",
 ]
 
 MIDDLEWARE = [
@@ -151,3 +152,8 @@ SPECTACULAR_SETTINGS = {
     "COMPONENT_SPLIT_REQUEST": True,
     "SWAGGER_UI_SETTINGS": {"deepLinking": True},
 }
+
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_PUBLIC_BASE_URL = os.environ.get(
+    "STRIPE_PUBLIC_BASE_URL", "http://127.0.0.1:8000"
+)

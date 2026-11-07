@@ -1,3 +1,5 @@
+import uuid
+
 from rest_framework import mixins, permissions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -11,6 +13,8 @@ from drf_spectacular.utils import (
 from borrowings.models import Borrowing
 from borrowings.serializers import BorrowingSerializer
 from borrowings.services import return_borrowing
+from payments.models import Payment
+from payments.services import IdempotencyConflict, PaymentUnavailable, ensure_checkout
 
 
 @extend_schema_view(
@@ -51,12 +55,28 @@ from borrowings.services import return_borrowing
         tags=["Borrowings"],
         summary="Borrow an available book",
         description="JWT required. Submit only book (ID) and expected_return_date (YYYY-MM-DD, today or later). user comes from request.user; id, user, borrow_date and actual_return_date are read-only. Creation and inventory decrement are atomic, including concurrent requests on SQLite. No PUT/PATCH/DELETE operations are allowed.",
+        parameters=[
+            OpenApiParameter(
+                "Idempotency-Key",
+                str,
+                OpenApiParameter.HEADER,
+                required=True,
+                description="UUID for this rental attempt. Reuse the same key and body after failure. Different rentals need new keys. 503 leaves one borrowing/payment reserved; retry within 23h. Stripe network calls run after the DB transaction commits.",
+            )
+        ],
         responses={
             201: BorrowingSerializer,
             400: OpenApiResponse(
                 description="Book unavailable/not found, invalid or past expected_return_date, or missing required fields."
             ),
             401: OpenApiResponse(description="Missing or invalid JWT."),
+            200: BorrowingSerializer,
+            409: OpenApiResponse(
+                description="Key reused for different input/user, or checkout retry window expired."
+            ),
+            503: OpenApiResponse(
+                description="Stripe unavailable. Reservation remains PENDING; retry the identical request/key."
+            ),
         },
     ),
 )
@@ -97,8 +117,49 @@ class BorrowingViewSet(
                 queryset = queryset.filter(user_id=user_id)
         return queryset
 
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+    def create(self, request, *args, **kwargs):
+        try:
+            request_key = uuid.UUID(request.headers.get("Idempotency-Key", ""))
+        except ValueError, TypeError, AttributeError:
+            raise serializers.ValidationError(
+                {"Idempotency-Key": "A UUID header is required."}
+            )
+        existing = (
+            Payment.objects.select_related("borrowing")
+            .filter(request_key=request_key)
+            .first()
+        )
+        if existing:
+            borrowing = existing.borrowing
+            if (
+                borrowing.user_id != request.user.pk
+                or str(borrowing.book_id) != str(request.data.get("book"))
+                or str(borrowing.expected_return_date)
+                != request.data.get("expected_return_date")
+            ):
+                raise IdempotencyConflict()
+        else:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            borrowing = serializer.save(user=request.user, request_key=request_key)
+        payment = Payment.objects.get(borrowing=borrowing, type=Payment.Type.PAYMENT)
+        try:
+            ensure_checkout(payment)
+        except PaymentUnavailable as error:
+            # No compensating deletion: Stripe may already have created a session.
+            return Response(
+                {
+                    "detail": str(error.detail),
+                    "borrowing_id": borrowing.pk,
+                    "payment_id": payment.pk,
+                    "idempotency_key": str(request_key),
+                    "retry": "Repeat this POST with the same Idempotency-Key and body.",
+                },
+                status=503,
+            )
+        return Response(
+            self.get_serializer(borrowing).data, status=200 if existing else 201
+        )
 
     @extend_schema(
         tags=["Borrowings"],

@@ -91,6 +91,10 @@ OpenAPI schema: http://127.0.0.1:8000/api/schema/.
    {"book":1,"expected_return_date":"2030-12-31"}
    ```
 
+   Supply a new UUID in the required `Idempotency-Key` header (PowerShell:
+   `[guid]::NewGuid()`). Keep that key and the exact request body for retries.
+   The response includes a read-only payments array with the Checkout URL.
+
 6. Execute `POST /api/borrowings/{id}/return/` using the borrowing ID, with no body.
    The server records today's date and restores one copy. A second return is 400
    and leaves inventory unchanged. The owner or staff may return the book.
@@ -132,7 +136,7 @@ inventory checks also work with SQLite (no reliance on select_for_update).
 
 ```powershell
 python manage.py test
-coverage run --source=books,users,borrowings manage.py test
+coverage run --source=books,users,borrowings,payments manage.py test
 coverage report -m --fail-under=60
 python manage.py spectacular --file schema.yml --validate
 python manage.py check
@@ -147,6 +151,51 @@ Coverage reports and the generated schema.yml are ignored by Git; regenerate the
 locally. Tests cover authentication, permissions, validation, database changes,
 rollback and concurrent borrowing/return operations.
 
+## Stripe test payments
+
+Set `STRIPE_SECRET_KEY` to your Stripe **sk_test_** secret and
+`STRIPE_PUBLIC_BASE_URL` to the base URL serving this API (default
+`http://127.0.0.1:8000`). Export them using the configuration steps above.
+Only test keys and test Checkout sessions are accepted. Never put keys in source
+code, screenshots, commits or request bodies. `.env` remains ignored.
+
+Rental days = `max(1, (expected_return_date - borrow_date).days)`: the return day
+is excluded; a same-day rental costs one day. USD total = daily_fee × days using
+Decimal, rounded to cents; for example 1.25 × 3 = 3.75 USD (375 cents sent to
+Stripe). Zero-price rentals are rejected. The USD card minimum is 0.50; totals
+above 999999.99 are rejected before reserving inventory. Stored totals/currency
+are immutable snapshots even if the book price later changes. FINE exists only
+as a model type; fine calculation is not implemented.
+
+Creating a borrowing reserves one copy and creates its PENDING Payment atomically.
+After that transaction commits, Stripe Checkout is called without a book lock.
+Open the returned payments[0].session_url and use Stripe's test card
+`4242 4242 4242 4242`, any future expiry and any three-digit CVC. Do not use a real
+card. The redirect `GET /api/payments/success/?session_id=...` fetches the session
+from Stripe and verifies test mode, complete/paid status, identity, stored amount
+and currency before marking PAID. A browser redirect alone is not proof of payment.
+Repeated success is harmless. `GET /api/payments/cancel/?session_id=...` changes
+nothing and returns the same URL so a PENDING payment can be resumed.
+These redirect endpoints are public because redirects do not carry a Bearer
+header; the unguessable session ID is a capability. They expose no user details.
+
+On Stripe/network failure the API returns 503 with borrowing_id/payment_id and
+the original key. Retry the same POST body and Idempotency-Key. It reuses the
+reservation, price, saved Stripe request parameters and Stripe idempotency key;
+inventory is not decremented again. A successful replay returns 200 instead of
+201. A key reused for another body/user returns 409. Never use a new key to retry
+an ambiguous network failure. Unknown outcomes older than 23 hours return 409
+for manual Stripe reconciliation: Stripe can discard idempotency keys after 24h,
+so blindly recreating such a session could allow a duplicate payment. No new
+session is automatically created for expired checkouts in this block.
+
+Automated payment tests mock Stripe and never require real credentials. For a
+manual test, obtain JWT, issue a book, open Checkout in test mode, complete the
+test payment, then verify the success response says PAID and a repeated callback
+leaves inventory unchanged. Cancel another test checkout and confirm PENDING.
+
+Stripe references: [Checkout Sessions](https://docs.stripe.com/api/checkout/sessions/create),
+[idempotent requests](https://docs.stripe.com/api/idempotent_requests).
 ## Continuous integration
 
 GitHub Actions checks every PR into develop/main and every push to these branches:

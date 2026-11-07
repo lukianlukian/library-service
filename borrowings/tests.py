@@ -2,11 +2,13 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from threading import Barrier
 from unittest.mock import patch
+from uuid import uuid4
 
 from django.contrib.auth import get_user_model
 from django.db import connections
 from django.urls import reverse
 from django.utils import timezone
+from django.test import override_settings
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APITestCase, APITransactionTestCase
 
@@ -15,8 +17,19 @@ from borrowings.models import Borrowing
 from borrowings.services import borrow_book, return_borrowing
 
 
+@override_settings(STRIPE_SECRET_KEY="sk_test_mock")
 class BorrowingAPITests(APITestCase):
     def setUp(self):
+        self.stripe_mock = patch(
+            "payments.services.stripe.checkout.Session.create",
+            return_value={
+                "id": "cs_test_borrowing",
+                "url": "https://checkout.stripe.com/test",
+                "livemode": False,
+            },
+        ).start()
+        self.addCleanup(patch.stopall)
+        self.client.credentials(HTTP_IDEMPOTENCY_KEY=str(uuid4()))
         self.user = get_user_model().objects.create_user(email="reader@example.com")
         self.other = get_user_model().objects.create_user(email="other@example.com")
         self.staff = get_user_model().objects.create_user(
