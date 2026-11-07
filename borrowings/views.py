@@ -120,7 +120,7 @@ class BorrowingViewSet(
     def create(self, request, *args, **kwargs):
         try:
             request_key = uuid.UUID(request.headers.get("Idempotency-Key", ""))
-        except (ValueError, TypeError, AttributeError):
+        except ValueError, TypeError, AttributeError:
             raise serializers.ValidationError(
                 {"Idempotency-Key": "A UUID header is required."}
             )
