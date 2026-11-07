@@ -3,6 +3,7 @@ source = books,users,borrowings,payments,notifications,config
 omit =
     */migrations/*
     */tests.py
+    */test_*.py
     */tests/*
     */.venv/*
     */venv/*
