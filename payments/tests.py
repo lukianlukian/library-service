@@ -198,9 +198,7 @@ class PaymentAPITests(APITransactionTestCase):
         self.assertEqual(self.book.inventory, 1)
 
     def test_session_created_but_database_save_failed_is_recovered(self):
-        with patch(
-            "payments.services.Payment.objects.filter", side_effect=RuntimeError
-        ):
+        with patch("payments.services.persist_checkout", side_effect=RuntimeError):
             with self.assertRaises(RuntimeError):
                 self.client.post(self.url, self.payload)
         self.assertEqual(Payment.objects.count(), 1)

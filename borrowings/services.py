@@ -2,6 +2,7 @@ import time
 import uuid
 
 from django.db import IntegrityError, OperationalError, connection, transaction
+from django.contrib.auth import get_user_model
 from django.db.models import F
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -56,8 +57,21 @@ def borrow_book(*, book, user, expected_return_date, request_key=None):
         return existing
 
     def operation():
-        # The first statement in the transaction is a conditional write, not
-        # a read followed by a lock upgrade. This also works on SQLite.
+        # Serialize new rentals for a user before checking debt. This is a
+        # write-first transaction on SQLite and a row lock on PostgreSQL.
+        get_user_model().objects.filter(pk=user.pk).update(last_login=F("last_login"))
+        replay = existing_borrowing()
+        if replay:
+            return replay
+        if Payment.objects.filter(
+            borrowing__user=user, status=Payment.Status.PENDING
+        ).exists():
+            raise ValidationError(
+                {
+                    "payment": "Outstanding PENDING payments must be paid before borrowing another book."
+                }
+            )
+        # Conditional decrement prevents issuing an unavailable copy.
         changed = Book.objects.filter(pk=book.pk, inventory__gt=0).update(
             inventory=F("inventory") - 1
         )
