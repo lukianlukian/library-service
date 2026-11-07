@@ -1,12 +1,15 @@
 import time
+import uuid
 
-from django.db import OperationalError, connection, transaction
+from django.db import IntegrityError, OperationalError, connection, transaction
 from django.db.models import F
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from books.models import Book
 from borrowings.models import Borrowing
+from payments.models import Payment
+from payments.services import IdempotencyConflict, checkout_parameters, rental_amount
 
 
 def _atomic_write(operation):
@@ -27,7 +30,30 @@ def _atomic_write(operation):
             time.sleep(0.01 * 2**attempt)
 
 
-def borrow_book(*, book, user, expected_return_date):
+def borrow_book(*, book, user, expected_return_date, request_key=None):
+    request_key = request_key or uuid.uuid4()
+
+    def existing_borrowing():
+        payment = (
+            Payment.objects.select_related("borrowing")
+            .filter(request_key=request_key)
+            .first()
+        )
+        if payment is None:
+            return None
+        borrowing = payment.borrowing
+        if (
+            borrowing.user_id != user.pk
+            or borrowing.book_id != book.pk
+            or borrowing.expected_return_date != expected_return_date
+        ):
+            raise IdempotencyConflict()
+        return borrowing
+
+    existing = _atomic_write(existing_borrowing)
+    if existing:
+        return existing
+
     def operation():
         # The first statement in the transaction is a conditional write, not
         # a read followed by a lock upgrade. This also works on SQLite.
@@ -36,11 +62,30 @@ def borrow_book(*, book, user, expected_return_date):
         )
         if not changed:
             raise ValidationError({"book": "No copies available."})
-        return Borrowing.objects.create(
+        current_book = Book.objects.get(pk=book.pk)
+        today = timezone.localdate()
+        amount = rental_amount(
+            current_book.daily_fee, (expected_return_date - today).days
+        )
+        borrowing = Borrowing.objects.create(
             book=book, user=user, expected_return_date=expected_return_date
         )
+        payment = Payment.objects.create(
+            borrowing=borrowing, money_to_pay=amount, request_key=request_key
+        )
+        payment.checkout_parameters = checkout_parameters(payment)
+        payment.save(update_fields=["checkout_parameters"])
+        return borrowing
 
-    return _atomic_write(operation)
+    try:
+        return _atomic_write(operation)
+    except IntegrityError:
+        # A concurrent request may have won the unique request_key insert.
+        # Its competitor's inventory decrement is rolled back with the insert.
+        existing = _atomic_write(existing_borrowing)
+        if existing:
+            return existing
+        raise
 
 
 def return_borrowing(*, borrowing):
