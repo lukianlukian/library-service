@@ -62,6 +62,14 @@ def checkout_parameters(payment):
     }
 
 
+def persist_checkout(payment, session):
+    Payment.objects.filter(pk=payment.pk, session_id__isnull=True).update(
+        session_id=session["id"], session_url=session["url"]
+    )
+    payment.refresh_from_db()
+    return payment
+
+
 def ensure_checkout(payment):
     if payment.session_id:
         return payment
@@ -88,11 +96,7 @@ def ensure_checkout(payment):
         raise PaymentUnavailable(
             "Stripe did not return a Checkout URL; retry the same request."
         )
-    Payment.objects.filter(pk=payment.pk, session_id__isnull=True).update(
-        session_id=session["id"], session_url=session["url"]
-    )
-    payment.refresh_from_db()
-    return payment
+    return persist_checkout(payment, session)
 
 
 def verify_payment(payment):

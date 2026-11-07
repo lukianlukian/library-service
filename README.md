@@ -206,6 +206,12 @@ external-service tests use mocks. Run `python -m flake8 .` and
 
 ## Background Telegram notifications
 
+New borrowings are rejected with HTTP 400 and a `payment` error while the reader
+has any PENDING payment (rental or fine), without changing inventory. The check
+and reservation are serialized per user, including simultaneous requests. A replay
+of the original Idempotency-Key is still allowed so a failed checkout can recover.
+Another user's debt does not restrict this user; PAID payments do not block.
+
 Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_IDS (comma-separated administrator chat
 IDs). The bot must already be allowed to message these chats. Leave both blank to
 disable notifications. Never commit the bot token or personal chat IDs.

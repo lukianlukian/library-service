@@ -67,7 +67,7 @@ from payments.services import IdempotencyConflict, PaymentUnavailable, ensure_ch
         responses={
             201: BorrowingSerializer,
             400: OpenApiResponse(
-                description="Book unavailable/not found, invalid or past expected_return_date, or missing required fields."
+                description="Outstanding PENDING payments (payment error field), book unavailable/not found, invalid or past expected_return_date, or missing required fields. No inventory changes on rejection. Replays of the original Idempotency-Key remain allowed."
             ),
             401: OpenApiResponse(description="Missing or invalid JWT."),
             200: BorrowingSerializer,
