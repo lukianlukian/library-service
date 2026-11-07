@@ -7,6 +7,7 @@ class Payment(models.Model):
     class Status(models.TextChoices):
         PENDING = "PENDING"
         PAID = "PAID"
+        EXPIRED = "EXPIRED"
 
     class Type(models.TextChoices):
         PAYMENT = "PAYMENT"
@@ -24,6 +25,8 @@ class Payment(models.Model):
     request_key = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     checkout_parameters = models.JSONField(default=dict, editable=False)
+    renewal_key = models.UUIDField(null=True, blank=True, unique=True, editable=False)
+    renewal_started_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
         constraints = [
@@ -36,3 +39,13 @@ class Payment(models.Model):
                 name="one_rental_payment_per_borrowing",
             ),
         ]
+
+
+class CheckoutSession(models.Model):
+    payment = models.ForeignKey(
+        Payment, on_delete=models.PROTECT, related_name="checkout_sessions"
+    )
+    request_key = models.UUIDField(unique=True, editable=False)
+    session_id = models.CharField(max_length=255, unique=True)
+    session_url = models.URLField(max_length=2048)
+    created_at = models.DateTimeField(auto_now_add=True)

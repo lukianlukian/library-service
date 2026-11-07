@@ -187,7 +187,8 @@ inventory is not decremented again. A successful replay returns 200 instead of
 an ambiguous network failure. Unknown outcomes older than 23 hours return 409
 for manual Stripe reconciliation: Stripe can discard idempotency keys after 24h,
 so blindly recreating such a session could allow a duplicate payment. No new
-session is automatically created for expired checkouts in this block.
+session is automatically created for expired checkouts; use the authorized renewal
+endpoint described below.
 
 Automated payment tests mock Stripe and never require real credentials. For a
 manual test, obtain JWT, issue a book, open Checkout in test mode, complete the
@@ -249,3 +250,23 @@ and inventory operations remain idempotent independently of notifications.
 Run notifications tests with `python manage.py test notifications`. Include this
 app in explicit coverage commands:
 `coverage run --source=books,users,borrowings,payments,notifications manage.py test`.
+
+## Expired Checkout sessions and renewal
+
+Celery Beat runs payments.tasks.check_payment_sessions every minute. The worker
+retrieves each PENDING current session from Stripe outside a database transaction.
+Verified expired/unpaid sessions become EXPIRED; verified complete/paid sessions
+are reconciled to PAID even when the customer missed the success redirect. Stripe
+errors or mismatched amount/currency/identity leave the record unchanged for the
+next scheduled check. Missing test credentials disable this check.
+
+POST /api/payments/{id}/renew/ requires JWT for the owner or staff. Send no body
+and a **new UUID** Idempotency-Key. Only EXPIRED payments can start a new generation;
+ordinary PENDING or PAID payments return 409. The same renewal key can safely retry
+an in-progress PENDING renewal after a network failure. It returns the new session
+URL and changes status to PENDING. Each attempt has a saved key/timestamp and
+historical session record. Totals, currency, borrowing and inventory do not change.
+A different retry key is rejected while renewal is in progress. Unknown outcomes
+older than 23 hours require manual reconciliation; do not generate another key.
+Old session callbacks return 404 after renewal and cannot pay/expire the new session.
+The debt restriction is specifically for PENDING payments, not EXPIRED records.

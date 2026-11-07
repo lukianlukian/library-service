@@ -173,6 +173,10 @@ CELERY_TASK_PUBLISH_RETRY = False
 CELERY_TASK_IGNORE_RESULT = True
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULE = {
+    "check-payment-sessions": {
+        "task": "payments.tasks.check_payment_sessions",
+        "schedule": 60.0,
+    },
     "daily-overdue-borrowings": {
         "task": "notifications.tasks.check_overdue_borrowings",
         "schedule": crontab(hour=9, minute=0),
