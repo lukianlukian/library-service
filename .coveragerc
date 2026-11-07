@@ -1,5 +1,5 @@
 [run]
-source = books,users,borrowings,payments,config
+source = books,users,borrowings,payments,notifications,config
 omit =
     */migrations/*
     */tests.py

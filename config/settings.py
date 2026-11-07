@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 import os
 from pathlib import Path
+from celery.schedules import crontab
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -46,6 +47,7 @@ INSTALLED_APPS = [
     "users",
     "borrowings",
     "payments",
+    "notifications",
 ]
 
 MIDDLEWARE = [
@@ -157,3 +159,26 @@ STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_PUBLIC_BASE_URL = os.environ.get(
     "STRIPE_PUBLIC_BASE_URL", "http://127.0.0.1:8000"
 )
+
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_IDS = [
+    value.strip()
+    for value in os.environ.get("TELEGRAM_CHAT_IDS", "").split(",")
+    if value.strip()
+]
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0")
+CELERY_BROKER_CONNECTION_TIMEOUT = 1
+CELERY_BROKER_TRANSPORT_OPTIONS = {"socket_connect_timeout": 1, "socket_timeout": 1}
+CELERY_TASK_PUBLISH_RETRY = False
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_BEAT_SCHEDULE = {
+    "daily-overdue-borrowings": {
+        "task": "notifications.tasks.check_overdue_borrowings",
+        "schedule": crontab(hour=9, minute=0),
+    },
+    "recover-notification-outbox": {
+        "task": "notifications.tasks.dispatch_pending_notifications",
+        "schedule": 60.0,
+    },
+}
