@@ -6,7 +6,8 @@ with JWT, issue books and record returns while tracking available copies.
 ## Technologies
 
 Python 3.14, Django, Django REST Framework, SQLite, SimpleJWT, drf-spectacular
-(OpenAPI 3 / Swagger UI), and coverage.py. Versions are pinned in requirements.txt.
+(OpenAPI 3 / Swagger UI), Stripe test Checkout, Celery, Redis, Telegram Bot API,
+and coverage.py. Versions are pinned in requirements.txt.
 
 ## Install from scratch
 
@@ -46,6 +47,11 @@ For Linux/macOS: `set -a; . ./.env; set +a`.
 | DJANGO_SECRET_KEY | Development-only fallback | Set a long random value outside local development. Never commit real secrets. |
 | DJANGO_DEBUG | true | Set false outside local development. |
 | DJANGO_ALLOWED_HOSTS | localhost,127.0.0.1 | Comma-separated allowed hostnames. |
+| STRIPE_SECRET_KEY | empty | Your sk_test_ key; live keys are rejected. |
+| STRIPE_PUBLIC_BASE_URL | http://127.0.0.1:8000 | Base URL for Checkout redirects. |
+| TELEGRAM_BOT_TOKEN | empty | Bot token; blank disables notifications. |
+| TELEGRAM_CHAT_IDS | empty | Comma-separated administrator chat IDs. |
+| CELERY_BROKER_URL | redis://127.0.0.1:6379/0 | Redis connection for Celery. |
 
 SQLite is stored at `db.sqlite3`; no external database service is required.
 The `.env` and database are ignored by Git. The Django development server is for
@@ -112,6 +118,9 @@ OpenAPI schema: http://127.0.0.1:8000/api/schema/.
 | /api/borrowings/ | GET, POST | JWT required. Readers see their own records; staff see all. |
 | /api/borrowings/{id}/ | GET | Owner or staff; other readers receive 404. |
 | /api/borrowings/{id}/return/ | POST | Owner or staff; atomic return and inventory increment. |
+| /api/payments/success/ | GET | Public session_id redirect; server verifies Stripe before PAID. |
+| /api/payments/cancel/ | GET | Public session_id redirect; does not change payment status. |
+| /api/payments/{id}/renew/ | POST | JWT owner/staff; renew EXPIRED payment with a new UUID header. |
 
 Books require non-negative inventory and daily_fee; cover is HARD or SOFT.
 Books referenced by borrowings are protected from deletion. Borrowing creation
@@ -136,7 +145,7 @@ inventory checks also work with SQLite (no reliance on select_for_update).
 
 ```powershell
 python manage.py test
-coverage run --source=books,users,borrowings,payments manage.py test
+coverage run --source=books,users,borrowings,payments,notifications manage.py test
 coverage report -m --fail-under=60
 python manage.py spectacular --file schema.yml --validate
 python manage.py check
@@ -144,7 +153,7 @@ git diff --check
 ```
 
 `.coveragerc` excludes virtual environments, migrations and test code. The explicit
-`--source` command above measures the three API apps; plain `coverage run manage.py
+`--source` command above measures all API apps and notifications; plain `coverage run manage.py
 test` also includes config as configured in `.coveragerc`. The minimum coverage is
 60%. Optional HTML output: `coverage html`, then open `htmlcov/index.html`.
 Coverage reports and the generated schema.yml are ignored by Git; regenerate them
@@ -207,11 +216,15 @@ external-service tests use mocks. Run `python -m flake8 .` and
 
 ## Background Telegram notifications
 
+### Outstanding payments
+
 New borrowings are rejected with HTTP 400 and a `payment` error while the reader
 has any PENDING payment (rental or fine), without changing inventory. The check
 and reservation are serialized per user, including simultaneous requests. A replay
 of the original Idempotency-Key is still allowed so a failed checkout can recover.
 Another user's debt does not restrict this user; PAID payments do not block.
+
+### Redis, worker and scheduler
 
 Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_IDS (comma-separated administrator chat
 IDs). The bot must already be allowed to message these chats. Leave both blank to
@@ -270,3 +283,21 @@ A different retry key is rejected while renewal is in progress. Unknown outcomes
 older than 23 hours require manual reconciliation; do not generate another key.
 Old session callbacks return 404 after renewal and cannot pay/expire the new session.
 The debt restriction is specifically for PENDING payments, not EXPIRED records.
+
+## Submission and end-to-end checks
+
+PR links and acceptance status are collected in [docs/submission.md](docs/submission.md).
+Run `python manage.py test payments.test_workflow` for the full API workflow with
+real JWT and mocked external providers: registration, book creation, borrowing,
+payment, notification, return, expiration, renewal and overdue notification.
+Mock tests do not prove that real Stripe/Telegram accounts are configured.
+The submission checklist keeps those external acceptance items separate.
+
+For a manual test after exporting service credentials, run Redis, Django, the
+worker and one Beat scheduler. Follow the Swagger walkthrough, complete Stripe
+Checkout with its test card, confirm the administrator receives new-borrowing and
+payment messages, and return the book. For expiration testing, expire an unpaid
+session in Stripe test mode, wait for the minute check, then renew it as the owner.
+For overdue testing, use a disposable local borrowing due yesterday with no actual
+return date and run `celery -A config call notifications.tasks.check_overdue_borrowings`.
+Never use live keys or a real card for these checks.
