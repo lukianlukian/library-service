@@ -146,3 +146,11 @@ test` also includes config as configured in `.coveragerc`. The minimum coverage 
 Coverage reports and the generated schema.yml are ignored by Git; regenerate them
 locally. Tests cover authentication, permissions, validation, database changes,
 rollback and concurrent borrowing/return operations.
+
+## Continuous integration
+
+GitHub Actions checks every PR into develop/main and every push to these branches:
+flake8, Black, missing migrations, Django checks, OpenAPI validation, tests and
+coverage (minimum 60%). No Stripe or Telegram credentials are supplied to CI;
+external-service tests use mocks. Run `python -m flake8 .` and
+`python -m black --check --workers 1 .` locally before pushing.

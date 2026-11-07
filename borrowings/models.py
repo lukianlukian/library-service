@@ -8,7 +8,4 @@ class Borrowing(models.Model):
     actual_return_date = models.DateField(null=True, blank=True)
 
     book = models.ForeignKey("books.Book", on_delete=models.PROTECT)
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT
-    )
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
