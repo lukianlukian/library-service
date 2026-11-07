@@ -196,3 +196,10 @@ leaves inventory unchanged. Cancel another test checkout and confirm PENDING.
 
 Stripe references: [Checkout Sessions](https://docs.stripe.com/api/checkout/sessions/create),
 [idempotent requests](https://docs.stripe.com/api/idempotent_requests).
+## Continuous integration
+
+GitHub Actions checks every PR into develop/main and every push to these branches:
+flake8, Black, missing migrations, Django checks, OpenAPI validation, tests and
+coverage (minimum 60%). No Stripe or Telegram credentials are supplied to CI;
+external-service tests use mocks. Run `python -m flake8 .` and
+`python -m black --check --workers 1 .` locally before pushing.
