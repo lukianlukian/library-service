@@ -8,8 +8,11 @@ from books.models import Book
 class BookAPITests(APITestCase):
     def setUp(self):
         self.payload = {
-            "title": "Dune", "author": "Frank Herbert", "inventory": 3,
-            "daily_fee": "1.50", "cover": "HARD",
+            "title": "Dune",
+            "author": "Frank Herbert",
+            "inventory": 3,
+            "daily_fee": "1.50",
+            "cover": "HARD",
         }
         self.book = Book.objects.create(**self.payload)
         self.list_url = reverse("book-list")
@@ -35,15 +38,17 @@ class BookAPITests(APITestCase):
         for user in (None, self.user):
             self.client.force_authenticate(user=user)
             for method, url in (
-                ("post", self.list_url), ("put", self.detail_url),
-                ("patch", self.detail_url), ("delete", self.detail_url),
+                ("post", self.list_url),
+                ("put", self.detail_url),
+                ("patch", self.detail_url),
+                ("delete", self.detail_url),
             ):
                 with self.subTest(user=user, method=method):
                     before = list(Book.objects.values())
                     response = getattr(self.client, method)(
                         url, {**self.payload, "title": "Changed"}, format="json"
                     )
-                    self.assertEqual(response.status_code, 403)
+                    self.assertEqual(response.status_code, 401 if user is None else 403)
                     self.assertEqual(list(Book.objects.values()), before)
 
     def test_staff_can_create_update_and_delete(self):
@@ -74,10 +79,13 @@ class BookAPITests(APITestCase):
     def test_invalid_values_are_rejected_on_create_and_update(self):
         self.client.force_authenticate(user=self.staff)
         for field, value in (
-            ("inventory", -1), ("daily_fee", "-0.01"), ("cover", "UNKNOWN")
+            ("inventory", -1),
+            ("daily_fee", "-0.01"),
+            ("cover", "UNKNOWN"),
         ):
             for method, url in (
-                ("post", self.list_url), ("put", self.detail_url),
+                ("post", self.list_url),
+                ("put", self.detail_url),
                 ("patch", self.detail_url),
             ):
                 with self.subTest(field=field, method=method):
