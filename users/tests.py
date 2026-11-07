@@ -99,7 +99,7 @@ class UsersAPITests(APITestCase):
         self.assertEqual(self.client.get(self.me_url).status_code, 401)
 
     def test_guest_cannot_access_or_modify_profile(self):
-        user = self.create_user()
+        self.create_user()
         before = list(get_user_model().objects.values())
         for method in ("get", "put", "patch"):
             with self.subTest(method=method):
