@@ -3,10 +3,12 @@ from decimal import Decimal
 
 import stripe
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import APIException, ValidationError
 
 from payments.models import Payment
+from notifications.services import schedule_event
 
 
 class PaymentUnavailable(APIException):
@@ -115,8 +117,14 @@ def verify_payment(payment):
     if session.get("payment_status") != "paid" or session.get("status") != "complete":
         raise ValidationError({"detail": "Stripe has not confirmed payment."})
     # Atomic state transition; concurrent/repeated callbacks do no extra work.
-    Payment.objects.filter(pk=payment.pk, status=Payment.Status.PENDING).update(
-        status=Payment.Status.PAID
-    )
+    with transaction.atomic():
+        changed = Payment.objects.filter(
+            pk=payment.pk, status=Payment.Status.PENDING
+        ).update(status=Payment.Status.PAID)
+        if changed:
+            schedule_event(
+                f"payment:{payment.pk}",
+                f"Payment #{payment.pk} confirmed: {payment.money_to_pay} {payment.currency.upper()}; borrowing #{payment.borrowing_id}.",
+            )
     payment.refresh_from_db()
     return payment

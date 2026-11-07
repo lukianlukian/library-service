@@ -6,3 +6,5 @@ coverage==7.17.2
 stripe==16.1.0
 black==26.10.1
 flake8==7.5.0
+celery[redis]==5.7.0
+requests==2.34.2

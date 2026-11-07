@@ -10,6 +10,7 @@ from books.models import Book
 from borrowings.models import Borrowing
 from payments.models import Payment
 from payments.services import IdempotencyConflict, checkout_parameters, rental_amount
+from notifications.services import schedule_event
 
 
 def _atomic_write(operation):
@@ -75,6 +76,10 @@ def borrow_book(*, book, user, expected_return_date, request_key=None):
         )
         payment.checkout_parameters = checkout_parameters(payment)
         payment.save(update_fields=["checkout_parameters"])
+        schedule_event(
+            f"borrowing:{borrowing.pk}",
+            f"New borrowing #{borrowing.pk}: {current_book.title}; user #{user.pk}; due {expected_return_date}.",
+        )
         return borrowing
 
     try:

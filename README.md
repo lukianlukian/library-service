@@ -203,3 +203,43 @@ flake8, Black, missing migrations, Django checks, OpenAPI validation, tests and
 coverage (minimum 60%). No Stripe or Telegram credentials are supplied to CI;
 external-service tests use mocks. Run `python -m flake8 .` and
 `python -m black --check --workers 1 .` locally before pushing.
+
+## Background Telegram notifications
+
+Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_IDS (comma-separated administrator chat
+IDs). The bot must already be allowed to message these chats. Leave both blank to
+disable notifications. Never commit the bot token or personal chat IDs.
+
+Start Redis and run migrations, then use separate terminals with the same exported
+environment variables:
+
+```powershell
+docker compose up -d redis
+python manage.py migrate
+python manage.py runserver
+# Terminal 2 (Windows local development):
+celery -A config worker --pool=solo --loglevel=info
+# Terminal 3 (run exactly one scheduler):
+celery -A config beat --loglevel=info
+```
+
+On Linux/WSL use `celery -A config worker --loglevel=info`. Windows solo is for
+local testing; Celery does not officially support Windows. Redis is bound to
+127.0.0.1:6379; CELERY_BROKER_URL defaults to redis://127.0.0.1:6379/0.
+Notification tasks are published after commit. An outbox row is stored in the
+same transaction as the borrowing or PAID transition. Queue failures do not fail
+the API request; a minute dispatcher republishes unsent events. Each event/chat
+has at most four delivery attempts, with task retry backoff 5/10/20 seconds.
+Failed rows remain inspectable; attempts are never reset automatically.
+
+Administrators receive new-borrowing and confirmed-payment messages. The scheduler
+checks overdue borrowings every day at 09:00 UTC: actual_return_date is null and
+expected_return_date is before today. It sends book, borrowing/user IDs and due
+date, once per borrowing/chat/day. Notification deduplication uses event keys and
+a delivery lease. Telegram has no idempotent send API: a process crash after a
+successful send but before saving sent_at can still cause a duplicate. Payment
+and inventory operations remain idempotent independently of notifications.
+
+Run notifications tests with `python manage.py test notifications`. Include this
+app in explicit coverage commands:
+`coverage run --source=books,users,borrowings,payments,notifications manage.py test`.
