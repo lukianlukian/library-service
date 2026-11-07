@@ -12,10 +12,11 @@ def check_payment_sessions():
     if not settings.STRIPE_SECRET_KEY.startswith("sk_test_"):
         return {"expired": 0, "paid": 0, "failed": 0}
     counts = {"expired": 0, "paid": 0, "failed": 0}
-    payments = Payment.objects.filter(
-        status=Payment.Status.PENDING, session_id__isnull=False
+    # Finish the read cursor before network calls, including on SQLite.
+    payments = list(
+        Payment.objects.filter(status=Payment.Status.PENDING, session_id__isnull=False)
     )
-    for payment in payments.iterator():
+    for payment in payments:
         try:
             session = stripe.checkout.Session.retrieve(
                 payment.session_id, api_key=test_api_key()
